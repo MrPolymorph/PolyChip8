@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PolyChip8", "PolyChip8\PolyChip8.csproj", "{5CAEC25A-5A10-4FB9-AD73-98F058930200}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PolyChip8.UI", "PolyChip8.UI\PolyChip8.UI.csproj", "{33846196-246F-4318-AE44-13F1E157CA94}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5CAEC25A-5A10-4FB9-AD73-98F058930200}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5CAEC25A-5A10-4FB9-AD73-98F058930200}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5CAEC25A-5A10-4FB9-AD73-98F058930200}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5CAEC25A-5A10-4FB9-AD73-98F058930200}.Release|Any CPU.Build.0 = Release|Any CPU
+		{33846196-246F-4318-AE44-13F1E157CA94}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{33846196-246F-4318-AE44-13F1E157CA94}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{33846196-246F-4318-AE44-13F1E157CA94}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{33846196-246F-4318-AE44-13F1E157CA94}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
