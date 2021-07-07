@@ -1,11 +1,6 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text;
-using Microsoft.VisualBasic;
 
 namespace PolyChip8
 {
@@ -14,27 +9,30 @@ namespace PolyChip8
         public byte DisplayWidth = 64;
         public byte DisplayHeight = 32;
 
-        private List<Instruction> _lookupTable;
-        private uint[] _screen;
-        
+        private byte[] _screen;
+
+        private Random _random;
+
         /// <summary>
-        /// Random from location 0x000 -> 0xFFF
+        /// RAM from location 0x000 -> 0xFFF
         /// </summary>
-        private byte[] _ram = new byte[4096];
-        private ushort[] _stack = new ushort[16];
-        
+        public byte[] Ram { get; }
+
+        private ushort[] Stack { get; }
+
         /// <summary>
         /// This timer is intended to be used for timing
         /// the events of games. its value can be set and read;
         /// </summary>
-        private Stopwatch _delayTimer;
-        
+        public int DelayTimer;
+
         /// <summary>
         /// This timer is used for sound effects. When its value is non-zero
         /// a beeping sound is made.
         /// </summary>
-        private Stopwatch _soundTimer;
+        public int SoundTimer;
 
+        private List<Instruction> _lookupTable;
         
         public byte[] VRegisters { get; init; }
 
@@ -43,53 +41,83 @@ namespace PolyChip8
         public ushort ProgramCounter { get; private set; }
         public byte StackPointer { get; private set; }
         public ushort Instruction { get; private set; }
-        
+        public long ProgramSize { get; private set; }
+
         public Instruction CurrentInstruction { get; private set; }
+
         /// <summary>
         /// The second nibble, used to look up one of the 16 X registers.
         /// </summary>
         public byte X { get; private set; }
+
         /// <summary>
         /// The third nibble, used to look up one of the 16 Y registers.
         /// </summary>
         public byte Y { get; private set; }
+
         /// <summary>
         /// The fourth nibble. A 4-bit number.
         /// </summary>
         public byte N { get; private set; }
+
         /// <summary>
         /// Second byte. 8-bit immediate.
         /// </summary>
         public byte Nn { get; private set; }
+
         /// <summary>
         /// 2nd, 3rd and 4th nibbles. 12-bit immediate.
         /// </summary>
         public ushort Nnn { get; private set; }
 
-        /// <summary>
-        /// FLAGS
-        /// </summary>
-        private byte _vF;
+        public List<string> Dissassembly { get; private set; }
 
-        
-        public uint[] Screen {get => _screen;}
+        public uint[] Screen
+        {
+            get
+            {
+                var buffer = new uint[DisplayHeight * DisplayWidth];
+
+                for (int i = 0; i < buffer.Length; i++)
+                {
+                    var px = _screen[i];
+                    buffer[i] = (uint) ((0x00FFFFFF * px) | 0xFF000000);
+                }
+
+                return buffer;
+            }
+        }
 
         public CPU()
         {
-            _screen = new uint[DisplayWidth*DisplayHeight];
+            _screen = new byte[DisplayWidth * DisplayHeight];
+            _random = new Random();
 
+            VRegisters = new byte[16];
+            Dissassembly = new List<string>();
+            ProgramCounter = 0x0200;
+            Instruction = 0x0200;
+            Ram = new byte[4096];
+            Stack = new ushort[16];
+            CurrentInstruction = new Instruction("NoOp", NoOp, 0x00);
+
+            for (int i = 0; i < _screen.Length; i++)
+            {
+                _screen[i] = 0;
+            }
+            
             _lookupTable = new List<Instruction>()
             {
                 new Instruction("NoOp", NoOp, 0),
                 new Instruction("CLS", CLS, 0xE0),
                 new Instruction("RET", RET, 0x00EE),
-                new Instruction("JP", JP, 0x10),
-                new Instruction("CALL", CALL, 0x20),
-                new Instruction("SeVx", SE, 0x30),
-                new Instruction("SNE", SNE, 0x40),
-                new Instruction("SE Vx", SEV, 0x50),
-                new Instruction("LD Vx", LoadVxWithNN, 0x60),
-                new Instruction("LD Vx", AddNNtoVx, 0x70),
+                new Instruction("JP", JP, 0x1000),
+                new Instruction("CALL", CALL, 0x2000),
+                new Instruction("SeVx", SEVX, 0x3000),
+                new Instruction("SNE", SNE, 0x4000),
+                new Instruction("SE Vx", SEVXVY, 0x5000),
+                new Instruction("LD Vx", LoadVxWithNN, 0x6000),
+                new Instruction("LD Vx", AddNNtoVx, 0x7000),
                 new Instruction("LD Vx", LDVXVY, 0x800F),
                 new Instruction("LD Vx", VxORVy, 0x8001),
                 new Instruction("ADN Vx, Vy", VxANDVy, 0x8002),
@@ -100,10 +128,10 @@ namespace PolyChip8
                 new Instruction("SUBN Vx, Vy", VxSUBN, 0x8007),
                 new Instruction("Vx SHL Vx {, Vy}", VxSHL, 0x800E),
                 new Instruction("SBE Vx, Vy", VxSNEVy, 0x9000),
-                new Instruction("LD I, addr", LdI, 0xA0),
+                new Instruction("LD I, addr", LdI, 0xA000),
                 new Instruction("JP V0, addr", CALL, 0xB000),
                 new Instruction("RND Vx", VxRND, 0xC000),
-                new Instruction("DRW Vx, Vy", DRW, 0xD0),
+                new Instruction("DRW Vx, Vy", DRW, 0xD000),
                 new Instruction("SKP Vx", VxSKP, 0xE09E),
                 new Instruction("SKNP Vx", VxSKNP, 0xE0A1),
                 new Instruction("LD Vx, DT", LoadVxWithDt, 0xF007),
@@ -115,15 +143,25 @@ namespace PolyChip8
                 new Instruction("LD [I]. Vx", Dump, 0xF055),
                 new Instruction("LD Vx, [I]", Load, 0xF065),
             };
+            
 
-            VRegisters = new byte[16];
-
-            ProgramCounter = 0x0200;
-
-            for (int i = 0; i < _screen.Length; i++)
-            {
-                _screen[i] = (uint) System.Drawing.Color.HotPink.ToArgb();
-            }
+            //Set Font Memory in Ram
+            Ram[0x0050] = 0xF0; Ram[0x0051] = 0x90; Ram[0x0052] = 0x90; Ram[0x0053] = 0x90; Ram[0x0054] = 0xF0; //0
+            Ram[0x0055] = 0x20; Ram[0x0056] = 0x60; Ram[0x0057] = 0x20; Ram[0x0058] = 0x20; Ram[0x0059] = 0x70; //1
+            Ram[0x005A] = 0xF0; Ram[0x005B] = 0x10; Ram[0x005C] = 0xF0; Ram[0x005D] = 0x80; Ram[0x005E] = 0xF0; //2
+            Ram[0x005F] = 0xF0; Ram[0x0060] = 0x10; Ram[0x0061] = 0xF0; Ram[0x0062] = 0x10; Ram[0x0063] = 0xF0; //3
+            Ram[0x0064] = 0x90; Ram[0x0065] = 0x90; Ram[0x0066] = 0xF0; Ram[0x0067] = 0x10; Ram[0x0068] = 0x10; //4
+            Ram[0x0069] = 0xF0; Ram[0x006A] = 0x80; Ram[0x006B] = 0xF0; Ram[0x006C] = 0x10; Ram[0x006D] = 0xF0; //5
+            Ram[0x006E] = 0xF0; Ram[0x006F] = 0x80; Ram[0x0070] = 0xF0; Ram[0x0071] = 0x90; Ram[0x0072] = 0xF0; //6
+            Ram[0x0073] = 0xF0; Ram[0x0074] = 0x10; Ram[0x0075] = 0x20; Ram[0x0076] = 0x40; Ram[0x0077] = 0x40; //7
+            Ram[0x0078] = 0xF0; Ram[0x0079] = 0x90; Ram[0x007A] = 0xF0; Ram[0x007B] = 0x90; Ram[0x007C] = 0xF0; //8
+            Ram[0x007D] = 0xF0; Ram[0x007E] = 0x90; Ram[0x007F] = 0xF0; Ram[0x0080] = 0x10; Ram[0x0081] = 0xF0; //9
+            Ram[0x0082] = 0xF0; Ram[0x0083] = 0x90; Ram[0x0084] = 0xF0; Ram[0x0085] = 0x90; Ram[0x0086] = 0x90; //A
+            Ram[0x0087] = 0xE0; Ram[0x0088] = 0x90; Ram[0x0089] = 0xE0; Ram[0x008A] = 0x90; Ram[0x008B] = 0xE0; //B
+            Ram[0x008C] = 0xF0; Ram[0x008D] = 0x80; Ram[0x008E] = 0x80; Ram[0x008F] = 0x80; Ram[0x0090] = 0xF0; //C
+            Ram[0x0091] = 0xE0; Ram[0x0092] = 0x90; Ram[0x0093] = 0x90; Ram[0x0094] = 0x90; Ram[0x0095] = 0xE0; //D
+            Ram[0x0096] = 0xF0; Ram[0x0097] = 0x80; Ram[0x0098] = 0xF0; Ram[0x0099] = 0x80; Ram[0x009A] = 0xF0; //E
+            Ram[0x009B] = 0xF0; Ram[0x009C] = 0x80; Ram[0x009D] = 0xF0; Ram[0x009E] = 0x80; Ram[0x009F] = 0x80; //F
         }
 
         public void LoadROM(string file)
@@ -134,50 +172,150 @@ namespace PolyChip8
                 {
                     var buffer = new byte[fs.Length];
 
+                    ProgramSize = fs.Length;
+
                     br.BaseStream.Seek(0, SeekOrigin.Begin);
                     br.Read(buffer, 0, (int) fs.Length);
 
                     for (int i = 0; i < fs.Length; i++)
                     {
-                        _ram[0x200 + i] = buffer[i];
+                        Ram[0x200 + i] = buffer[i];
                     }
                 }
             }
-
         }
 
         public void Clock()
         {
             Fetch();
-            
-            CurrentInstruction.Operation();
+            var op = GetOp(Instruction);
+            op();
         }
 
-        private void Fetch()
+        public Action GetOp(ushort instruction)
         {
-            var loByte = _ram[ProgramCounter];
-            var hiByte = _ram[ProgramCounter + 1];
+            switch (instruction & 0xF000)
+            {
+                case 0x0000:
+                {
+                    switch (instruction )
+                    {
+                        case 0xE0: //Clear the screen.
+                            return CLS;
+                        case 0x0E: //Return from sub.
+                            return RET;
+                    }
+                    
+                    break;
+                }
+                case (0x1000): //Jump to location NN
+                    return JP;
+                case (0x2000): //Call sub at NN
+                    return CALL;
+                case (0x3000): //Skip next instruction if Vx == nn.
+                    return SEVX;
+                case (0x4000): //Skip next instruction if Vx != nn.
+                    return SNE;
+                case (0x5000): //Skip next instruction if Vx == Vy
+                    return SEVXVY;
+                case (0x6000): //Set Vx = nn
+                    return LoadVxWithNN;
+                case (0x7000): // Set Vx = Vx + kk
+                    return AddNNtoVx;
+                case (0x8000):
+                {
+                    switch (instruction & 0x000F)
+                    {
+                        case 0x00: //Set Vx = Vy
+                            return LDVXVY;
+                        case 0x01: //Vx OR Vy
+                            return VxORVy;
+                        case 0x02: // Vx AND Vy
+                            return VxANDVy;
+                        case 0x03: // Vx XOR Vy
+                            return VxXORVy;
+                        case 0x04: // Vx = Vx + Vy, Set VF = carry.
+                            return VxADDVy;
+                        case 0x05: //Set Vx = Vx - Vy, Set VF = Not Borrow
+                            return VxSUBVy;
+                        case 0x06: //Vx >> 1
+                            return VxSHR;
+                        case 0x07: //Set Vx = Vy - Vx, Set VF = Not Borrow
+                            return VxSUBN;
+                        case 0x0E: //Set Vx << 1
+                            return VxSHL;
+                    }
+                }
+                    break;
+                case (0x9000): // Skip next instruction if Vx != Vy
+                    return VxSNEVy;
+                case(0xA000): // Set I = nnn
+                    return LdI;
+                case(0xB000): // Jump to location nnn + V0
+                    return JpV0;
+                case (0xC000): // Set Vx = random & nn
+                    return VxRND;
+                case (0xD000):
+                    return DRW;
+                case (0xE000):
+                {
+                    switch (instruction & 0x00FF)
+                    {
+                        case (0x9E): // Skips next instruction if key with value of Vx is pressed.
+                            return VxSKP;
+                        case (0xA1): //Skips next instruction if key with the value of Vx is not pressed.
+                            return VxSKNP;
+                    }
+
+                    break;
+                }
+                case (0xF000):
+                {
+                    switch (instruction & 0x00FF)
+                    {
+                        case 0x07: //Set Vx = delay timer value.
+                            return LoadVxWithDt;
+                        case 0x0A: // Wait for a key press, store the value of the key in Vx
+                            return Wait;
+                        case 0x15: // Set Delay Timer
+                            return SetDelay;
+                        case 0x18: // Set Sound Timer
+                            return SetSound;
+                        case 0x1E: // I = I + Vx
+                            return IADDVX;
+                        case 0x29: // I = Sprite Digit Vx
+                            return LDFVX;
+                        case 0x33: // Stire BCD Representation of Vx in memory location I, I+1 and I+2.
+                            return BCD;
+                        case 0x55: //Stores registers V0 - Vx in memory starting at location I
+                            return Dump;
+                        case 0x65: // Read registers V0 through Vx in memory starting at location I.
+                            return Load;
+                    }
+
+                    break;
+                }
+            }
+
+            return () => { };
+        }
+
+        public void Fetch()
+        {
+            var hiByte = Ram[ProgramCounter];
+            var loByte = Ram[ProgramCounter + 1];
             
             Instruction = (ushort) ((hiByte << 8) | loByte);
-            var strInst = Convert.ToString(Instruction, 16);
-            CurrentInstruction = _lookupTable.FirstOrDefault(x => x.OpCode == (hiByte & 0xF0));
 
-            ProgramCounter += 2;
-            
-            /* INST   X   Y     N
-             *           (   NN   )
-             *      (   NNN       )
-             * 0000 0000 0000 0000
-             * 
-             */
             Nnn = (ushort) (Instruction & 0x0FFF);
             N = (byte) (Instruction & 0x000F);
             X = (byte) ((Instruction & 0x0F00) >> 8);
             Y = (byte) ((Instruction & 0x00F0) >> 4);
             Nn = (byte) (Instruction & 0x00FF);
             
+            ProgramCounter += 2;
         }
-        
+
         /// <summary>
         /// Calls machine code routine (RCA 1802 for COSMAC VIP)
         /// at address NNN. Not necessary for most ROMs.
@@ -194,7 +332,14 @@ namespace PolyChip8
         /// </summary>
         private void CLS()
         {
-            _screen = new uint[DisplayWidth * DisplayHeight];
+            for (int x = 0; x < DisplayWidth; x++)
+            {
+                for (int y = 0; y < DisplayHeight; y++)
+                {
+                    _screen[x + y * DisplayWidth] = 0;
+                    Screen[X + y * DisplayWidth] = 0;
+                }
+            }
         }
 
         /// <summary>
@@ -226,7 +371,7 @@ namespace PolyChip8
         private void CALL()
         {
             //put current pc on the top of the stack
-            _stack[StackPointer] = ProgramCounter;
+            Stack[StackPointer] = ProgramCounter;
             //increment stack pointer.
             StackPointer++;
             //set program counter to NNN.
@@ -239,7 +384,7 @@ namespace PolyChip8
         ///
         /// 0x3000 - SE
         /// </summary>
-        private void SE()
+        private void SEVX()
         {
             if (VRegisters[X] == Nn)
                 ProgramCounter += 2;
@@ -253,14 +398,14 @@ namespace PolyChip8
             if (VRegisters[X] != Nn)
                 ProgramCounter += 2;
         }
-        
+
         /// <summary>
         /// Skips the next instruction if Vx equals VY
         /// /// (Usually the next instruction is a jump to skip a code block);
         ///
         /// 0x4000 - SNE 
         /// </summary>
-        private void SEV()
+        private void SEVXVY()
         {
             if (VRegisters[X] == VRegisters[Y])
                 ProgramCounter += 2;
@@ -284,7 +429,7 @@ namespace PolyChip8
             var result = vX += Nn;
             VRegisters[X] = result;
         }
-        
+
         /// <summary>
         /// Sets Vx to the value of Vy
         /// </summary>
@@ -320,7 +465,6 @@ namespace PolyChip8
         }
 
 
-
         /// <summary>
         /// Sets Vx to Vx ^ VY
         /// </summary>
@@ -346,8 +490,7 @@ namespace PolyChip8
             var result = Vx + Vy;
 
             if (result > 255)
-                _vF = 1;
-
+                VRegisters[0xF] = 1;
         }
 
         /// <summary>
@@ -358,14 +501,14 @@ namespace PolyChip8
         {
             var Vx = VRegisters[X];
             var Vy = VRegisters[Y];
-            
-            _vF = 0;
+
+            VRegisters[0xF] = 0;
 
             if (Vx > Vy)
-                _vF = 1;
-            
+                VRegisters[0xF] = 1;
+
             var result = Vx - Vy;
-            
+
             VRegisters[X] = (byte) result;
         }
 
@@ -378,9 +521,9 @@ namespace PolyChip8
             var Vx = VRegisters[X];
             var Vy = VRegisters[Y];
 
-            VRegisters[X] = (byte)(Vx << 1);
+            VRegisters[X] = (byte) (Vx << 1);
 
-            _vF = (byte) (Vx & 0b00000001);
+            VRegisters[0xF] = (byte) (Vx & 0b00000001);
         }
 
         /// <summary>
@@ -389,7 +532,13 @@ namespace PolyChip8
         /// </summary>
         private void VxSUBN()
         {
+            var vx = VRegisters[X];
+            var vy = VRegisters[Y];
+
             
+            VRegisters[0xF] = (byte) (vy > vx ? 1 : 0);
+            
+            VRegisters[X] = (byte) (vy - vx);
         }
 
         /// <summary>
@@ -398,7 +547,9 @@ namespace PolyChip8
         /// </summary>
         private void VxSHL()
         {
+            var vx = VRegisters[X];
             
+            VRegisters[0xF] = (byte) (((vx & 0xF0) == 1 ? 1 : 0) << 1);
         }
 
         /// <summary>
@@ -407,7 +558,11 @@ namespace PolyChip8
         /// </summary>
         private void VxSNEVy()
         {
-            
+            var vx = VRegisters[X];
+            var vy = VRegisters[Y];
+
+            if (vx != vy)
+                ProgramCounter += 2;
         }
 
         /// <summary>
@@ -423,16 +578,18 @@ namespace PolyChip8
         /// </summary>
         private void JpV0()
         {
-            
+            ProgramCounter = (ushort) (Nnn + VRegisters[0]);
         }
 
         /// <summary>
         /// Sets Vx to the result of a bitwise & operation on a
-        /// reandom number (typically: 0 to 255) and NN
+        /// random number (typically: 0 to 255) and NN
         /// </summary>
         private void VxRND()
         {
-            
+            byte number = (byte) _random.Next(0, 255);
+
+            VRegisters[X] = (byte) (number & Nn);
         }
 
         /// <summary>
@@ -447,39 +604,28 @@ namespace PolyChip8
         /// </summary>
         private void DRW()
         {
-            var x = VRegisters[X] & DisplayWidth;
-            var y = VRegisters[Y] & DisplayHeight;
-            _vF = 0;
-
-            var screenPx = _screen[x + DisplayWidth * y];
+            var vx = VRegisters[X];
+            var vy = VRegisters[Y];
+            VRegisters[0xF] = 0;
             
+            var screenPx = _screen[vx + DisplayWidth * vy];
             
-            for (int i = 0; i < N; i++)
+            for (int yLine = 0; yLine < N; yLine++)
             {
-                byte sprite = _ram[AddressRegister];
-
-                var array = new BitArray(new byte[] {sprite});
+                byte sprite = Ram[AddressRegister + yLine];
                 
-                for(int px = 0; px < array.Length; px++)
+                for (int xLine = 0; xLine < 8; xLine++)
                 {
-                    bool spritePx = array[px];
-
-                    if (spritePx && screenPx == System.Drawing.Color.White.ToArgb())
+                    if ((sprite & (0x80 >> xLine)) != 0)
                     {
-                        _screen[x + DisplayWidth * y] = (uint) System.Drawing.Color.Black.ToArgb();
-                        _vF = 1;
-                    }
-                    else if (spritePx && screenPx != System.Drawing.Color.White.ToArgb())
-                    {
-                        _screen[x + DisplayWidth * y] = (uint) System.Drawing.Color.White.ToArgb();
-                    }
+                        if (_screen[(xLine + vx) + (yLine + vy) * DisplayWidth] == 1)
+                            VRegisters[0xF] = 1;
 
-                    if (px >= DisplayWidth)
-                        break;
+                        _screen[(xLine + vx) + (yLine + vy) * DisplayWidth] ^= 1;
+                    }
+                    
                 }
             }
-
-
         }
 
 
@@ -501,7 +647,6 @@ namespace PolyChip8
         /// </summary>
         private void VxSKNP()
         {
-            
         }
 
         /// <summary>
@@ -509,7 +654,7 @@ namespace PolyChip8
         /// </summary>
         private void LoadVxWithDt()
         {
-            
+            VRegisters[X] = (byte) DelayTimer;
         }
 
         /// <summary>
@@ -519,7 +664,6 @@ namespace PolyChip8
         /// </summary>
         private void Wait()
         {
-            
         }
 
         /// <summary>
@@ -527,7 +671,7 @@ namespace PolyChip8
         /// </summary>
         private void SetDelay()
         {
-            
+            DelayTimer = VRegisters[X];
         }
 
         /// <summary>
@@ -535,7 +679,7 @@ namespace PolyChip8
         /// </summary>
         private void SetSound()
         {
-            
+            SoundTimer = VRegisters[X];
         }
 
         /// <summary>
@@ -543,7 +687,7 @@ namespace PolyChip8
         /// </summary>
         private void IADDVX()
         {
-            
+            AddressRegister = (ushort) (VRegisters[X] + AddressRegister);
         }
 
         /// <summary>
@@ -553,7 +697,7 @@ namespace PolyChip8
         /// </summary>
         private void LDFVX()
         {
-            
+            AddressRegister = VRegisters[X];
         }
 
         /// <summary>
@@ -566,7 +710,14 @@ namespace PolyChip8
         /// </summary>
         private void BCD()
         {
-            
+            var vx = VRegisters[X];
+            byte h = (byte) Math.Abs(vx / 100 % 10);
+            byte t = (byte) Math.Abs(vx / 10 % 10);
+            byte d = (byte) Math.Abs(vx / 1 % 10);
+
+            Ram[AddressRegister] = h;
+            Ram[AddressRegister + 1] = t;
+            Ram[AddressRegister + 2] = d;
         }
 
         /// <summary>
@@ -577,7 +728,13 @@ namespace PolyChip8
         /// </summary>
         private void Dump()
         {
-            
+            var index = AddressRegister;
+
+            for (int i = 0; i < X; i++)
+            {
+                Ram[index] = VRegisters[i];
+                index++;
+            }
         }
 
         /// <summary>
@@ -586,28 +743,32 @@ namespace PolyChip8
         /// </summary>
         private void Load()
         {
-            
+            var index = AddressRegister;
+
+            for (int i = 0; i < X; i++)
+            {
+                VRegisters[i] = Ram[index];
+                index++;
+            }
         }
 
-        public string Dissasembly()
+        public void Dissassemble()
         {
             var start = 0x200;
 
-            StringBuilder builder = new StringBuilder();
-            builder.AppendLine();
-            
-            for (int pc = start; pc < _ram.Length; pc += 2)
+
+            for (int pc = start; pc < Ram.Length; pc += 2)
             {
-                var loByte = _ram[pc];
-                var hiByte = _ram[pc + 1];
-            
+                var hiByte = Ram[pc];
+                var loByte = Ram[pc + 1];
+
                 var instruction = (ushort) ((hiByte << 8) | loByte);
-                var ci = _lookupTable.FirstOrDefault(x => x.OpCode == (hiByte & 0xF0));
 
-                builder.AppendLine($"${pc:X4} {ci}");
+                var op = GetOp(instruction);
+                var opName = op.Method.Name;
+
+                Dissassembly.Add($"$0x{pc:x4}    {opName}    (0x{instruction:X4})");
             }
-
-            return builder.ToString();
         }
     }
 }
