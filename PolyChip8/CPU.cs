@@ -193,9 +193,9 @@ namespace PolyChip8
             op();
         }
 
-        public void SetKeypress(byte key)
+        public void SetKeypress(byte key, byte on)
         {
-            
+            Keyboard[key] = on;
         }
 
         /// <summary>
@@ -617,6 +617,7 @@ namespace PolyChip8
             var vy = VRegisters[Y];
             VRegisters[0xF] = 0;
             
+            
             var screenPx = _screen[vx + DisplayWidth * vy];
             
             for (int yLine = 0; yLine < N; yLine++)
@@ -627,12 +628,14 @@ namespace PolyChip8
                 {
                     if ((sprite & (0x80 >> xLine)) != 0)
                     {
+                        if (xLine + vx >= DisplayWidth)
+                            return;
+                        
                         if (_screen[(xLine + vx) + (yLine + vy) * DisplayWidth] == 1)
                             VRegisters[0xF] = 1;
 
                         _screen[(xLine + vx) + (yLine + vy) * DisplayWidth] ^= 1;
                     }
-                    
                 }
             }
         }
@@ -756,7 +759,6 @@ namespace PolyChip8
         {
             for (int i = 0; i <= X; i++)
                 Ram[AddressRegister + i] = VRegisters[i];
-
         }
 
         /// <summary>
@@ -782,6 +784,11 @@ namespace PolyChip8
             for (int i = 0; i < StackSize; i++)
             {
                 Stack[i] = 0x0000;
+            }
+
+            for (int i = 0; i < KeyboardSize; i++)
+            {
+                Keyboard[i] = 0;
             }
             
 
