@@ -6,18 +6,25 @@ namespace PolyChip8
 {
     public class CPU
     {
-        public byte DisplayWidth = 64;
-        public byte DisplayHeight = 32;
+        public const byte DisplayWidth = 64;
+        public const byte DisplayHeight = 32;
+        private const ushort RamSize = 4096;
+        private const byte StackSize = 16;
+        private const byte NumVRegisters = 16;
+        private const ushort InstructionStartAddress = 0x200;
+        
+        private readonly byte[] _screen;
 
-        private byte[] _screen;
-
-        private Random _random;
+        private readonly Random _random;
 
         /// <summary>
         /// RAM from location 0x000 -> 0xFFF
         /// </summary>
         public byte[] Ram { get; }
 
+        /// <summary>
+        /// Holds the Stack memory.
+        /// </summary>
         private ushort[] Stack { get; }
 
         /// <summary>
@@ -32,18 +39,34 @@ namespace PolyChip8
         /// </summary>
         public int SoundTimer;
 
-        private List<Instruction> _lookupTable;
-        
+        /// <summary>
+        /// The Chip-8 Has 16 8-bit V registers
+        /// [0] -> [F]
+        ///
+        /// Register V[F] is special and is used by some
+        /// operations as a carry, borrow or collision flag.
+        /// </summary>
         public byte[] VRegisters { get; init; }
 
         // also identified as I
         public ushort AddressRegister { get; private set; }
+        /// <summary>
+        /// The program counter stores the address currently
+        /// being operated on.
+        /// </summary>
         public ushort ProgramCounter { get; private set; }
+        /// <summary>
+        /// Stores the address of the current area on the stack.
+        /// </summary>
         public byte StackPointer { get; private set; }
+        /// <summary>
+        /// The current instruction address
+        /// </summary>
         public ushort Instruction { get; private set; }
+        /// <summary>
+        /// Stores the size of the program in bytes.
+        /// </summary>
         public long ProgramSize { get; private set; }
-
-        public Instruction CurrentInstruction { get; private set; }
 
         /// <summary>
         /// The second nibble, used to look up one of the 16 X registers.
@@ -70,8 +93,15 @@ namespace PolyChip8
         /// </summary>
         public ushort Nnn { get; private set; }
 
-        public List<string> Dissassembly { get; private set; }
+        /// <summary>
+        /// Holds the disassembly of the currently loaded program.
+        /// </summary>
+        public List<string> Disassembly { get; private set; }
 
+        /// <summary>
+        /// Returns a monochrome representation of the Chip-8 Display.
+        /// Colors in this array are represented as 0xAARRGGBB
+        /// </summary>
         public uint[] Screen
         {
             get
@@ -88,63 +118,19 @@ namespace PolyChip8
             }
         }
 
+        /// <summary>
+        /// Default constructor.
+        /// </summary>
         public CPU()
         {
+            VRegisters = new byte[NumVRegisters];
+            Ram = new byte[RamSize];
+            Stack = new ushort[StackSize];
             _screen = new byte[DisplayWidth * DisplayHeight];
             _random = new Random();
-
-            VRegisters = new byte[16];
-            Dissassembly = new List<string>();
-            ProgramCounter = 0x0200;
-            Instruction = 0x0200;
-            Ram = new byte[4096];
-            Stack = new ushort[16];
-            CurrentInstruction = new Instruction("NoOp", NoOp, 0x00);
-
-            for (int i = 0; i < _screen.Length; i++)
-            {
-                _screen[i] = 0;
-            }
             
-            _lookupTable = new List<Instruction>()
-            {
-                new Instruction("NoOp", NoOp, 0),
-                new Instruction("CLS", CLS, 0xE0),
-                new Instruction("RET", RET, 0x00EE),
-                new Instruction("JP", JP, 0x1000),
-                new Instruction("CALL", CALL, 0x2000),
-                new Instruction("SeVx", SEVX, 0x3000),
-                new Instruction("SNE", SNE, 0x4000),
-                new Instruction("SE Vx", SEVXVY, 0x5000),
-                new Instruction("LD Vx", LoadVxWithNN, 0x6000),
-                new Instruction("LD Vx", AddNNtoVx, 0x7000),
-                new Instruction("LD Vx", LDVXVY, 0x800F),
-                new Instruction("LD Vx", VxORVy, 0x8001),
-                new Instruction("ADN Vx, Vy", VxANDVy, 0x8002),
-                new Instruction("XOR Vx, Vy", VxXORVy, 0x8003),
-                new Instruction("ADD Vx, Vy", VxADDVy, 0x8004),
-                new Instruction("SUB Vx, Vy", VxSUBVy, 0x8005),
-                new Instruction("SHR Vx {, Vy}", VxSHR, 0x8006),
-                new Instruction("SUBN Vx, Vy", VxSUBN, 0x8007),
-                new Instruction("Vx SHL Vx {, Vy}", VxSHL, 0x800E),
-                new Instruction("SBE Vx, Vy", VxSNEVy, 0x9000),
-                new Instruction("LD I, addr", LdI, 0xA000),
-                new Instruction("JP V0, addr", CALL, 0xB000),
-                new Instruction("RND Vx", VxRND, 0xC000),
-                new Instruction("DRW Vx, Vy", DRW, 0xD000),
-                new Instruction("SKP Vx", VxSKP, 0xE09E),
-                new Instruction("SKNP Vx", VxSKNP, 0xE0A1),
-                new Instruction("LD Vx, DT", LoadVxWithDt, 0xF007),
-                new Instruction("LD Vx, K", Wait, 0xF00A),
-                new Instruction("LD DT, Vx", SetDelay, 0xF015),
-                new Instruction("ADD I, Vx", SetSound, 0xF018),
-                new Instruction("LD F, Vx", LDFVX, 0xF029),
-                new Instruction("LD B, VX", BCD, 0xF033),
-                new Instruction("LD [I]. Vx", Dump, 0xF055),
-                new Instruction("LD Vx, [I]", Load, 0xF065),
-            };
+            Reset();
             
-
             //Set Font Memory in Ram
             Ram[0x0050] = 0xF0; Ram[0x0051] = 0x90; Ram[0x0052] = 0x90; Ram[0x0053] = 0x90; Ram[0x0054] = 0xF0; //0
             Ram[0x0055] = 0x20; Ram[0x0056] = 0x60; Ram[0x0057] = 0x20; Ram[0x0058] = 0x20; Ram[0x0059] = 0x70; //1
@@ -164,6 +150,10 @@ namespace PolyChip8
             Ram[0x009B] = 0xF0; Ram[0x009C] = 0x80; Ram[0x009D] = 0xF0; Ram[0x009E] = 0x80; Ram[0x009F] = 0x80; //F
         }
 
+        /// <summary>
+        /// Loads the requested Program ROM into RAM.
+        /// </summary>
+        /// <param name="file">The program file to load.</param>
         public void LoadROM(string file)
         {
             using (var fs = new FileStream(file, FileMode.Open))
@@ -185,6 +175,9 @@ namespace PolyChip8
             }
         }
 
+        /// <summary>
+        /// Clocks the CPU
+        /// </summary>
         public void Clock()
         {
             Fetch();
@@ -192,114 +185,117 @@ namespace PolyChip8
             op();
         }
 
+        /// <summary>
+        /// This function Gets the operation pointer for a given opcode
+        ///
+        /// This is not an get and execute because the <see cref="Disassemble"/> method
+        /// uses it in order to construct a disassembly of the program code without
+        /// executing it.
+        /// </summary>
+        /// <param name="instruction">The opcode</param>
+        /// <returns>a <see cref="Action"/> which represents the Operation to perform.</returns>
         public Action GetOp(ushort instruction)
         {
-            switch (instruction & 0xF000)
+            return (instruction & 0xF000) switch
             {
-                case 0x0000:
+                0x0000 => (instruction & 0x00FF) switch
                 {
-                    switch (instruction )
-                    {
-                        case 0xE0: //Clear the screen.
-                            return CLS;
-                        case 0x0E: //Return from sub.
-                            return RET;
-                    }
-                    
-                    break;
-                }
-                case (0x1000): //Jump to location NN
-                    return JP;
-                case (0x2000): //Call sub at NN
-                    return CALL;
-                case (0x3000): //Skip next instruction if Vx == nn.
-                    return SEVX;
-                case (0x4000): //Skip next instruction if Vx != nn.
-                    return SNE;
-                case (0x5000): //Skip next instruction if Vx == Vy
-                    return SEVXVY;
-                case (0x6000): //Set Vx = nn
-                    return LoadVxWithNN;
-                case (0x7000): // Set Vx = Vx + kk
-                    return AddNNtoVx;
-                case (0x8000):
+                    0xE0 => //Clear the screen.
+                        CLS,
+                    0xEE => //Return from sub.
+                        RET,
+                    _ => NoOp
+                },
+                0x1000 => //Jump to location NN
+                    JP,
+                0x2000 => //Call sub at NN
+                    CALL,
+                0x3000 => //Skip next instruction if Vx == nn.
+                    SEVX,
+                0x4000 => //Skip next instruction if Vx != nn.
+                    SNE,
+                0x5000 => //Skip next instruction if Vx == Vy
+                    SEVXVY,
+                0x6000 => //Set Vx = nn
+                    LoadVxWithNN,
+                0x7000 => // Set Vx = Vx + kk
+                    AddNNtoVx,
+                0x8000 => (instruction & 0x000F) switch
                 {
-                    switch (instruction & 0x000F)
-                    {
-                        case 0x00: //Set Vx = Vy
-                            return LDVXVY;
-                        case 0x01: //Vx OR Vy
-                            return VxORVy;
-                        case 0x02: // Vx AND Vy
-                            return VxANDVy;
-                        case 0x03: // Vx XOR Vy
-                            return VxXORVy;
-                        case 0x04: // Vx = Vx + Vy, Set VF = carry.
-                            return VxADDVy;
-                        case 0x05: //Set Vx = Vx - Vy, Set VF = Not Borrow
-                            return VxSUBVy;
-                        case 0x06: //Vx >> 1
-                            return VxSHR;
-                        case 0x07: //Set Vx = Vy - Vx, Set VF = Not Borrow
-                            return VxSUBN;
-                        case 0x0E: //Set Vx << 1
-                            return VxSHL;
-                    }
-                }
-                    break;
-                case (0x9000): // Skip next instruction if Vx != Vy
-                    return VxSNEVy;
-                case(0xA000): // Set I = nnn
-                    return LdI;
-                case(0xB000): // Jump to location nnn + V0
-                    return JpV0;
-                case (0xC000): // Set Vx = random & nn
-                    return VxRND;
-                case (0xD000):
-                    return DRW;
-                case (0xE000):
+                    0x00 => //Set Vx = Vy
+                        LDVXVY,
+                    0x01 => //Vx OR Vy
+                        VxORVy,
+                    0x02 => // Vx AND Vy
+                        VxANDVy,
+                    0x03 => // Vx XOR Vy
+                        VxXORVy,
+                    0x04 => // Vx = Vx + Vy, Set VF = carry.
+                        VxADDVy,
+                    0x05 => //Set Vx = Vx - Vy, Set VF = Not Borrow
+                        VxSUBVy,
+                    0x06 => //Vx >> 1
+                        VxSHR,
+                    0x07 => //Set Vx = Vy - Vx, Set VF = Not Borrow
+                        VxSUBN,
+                    0x0E => //Set Vx << 1
+                        VxSHL,
+                    _ => NoOp
+                },
+                0x9000 => // Skip next instruction if Vx != Vy
+                    VxSNEVy,
+                0xA000 => // Set I = nnn
+                    LdI,
+                0xB000 => // Jump to location nnn + V0
+                    JpV0,
+                0xC000 => // Set Vx = random & nn
+                    VxRND,
+                0xD000 => DRW,
+                0xE000 => (instruction & 0x00FF) switch
                 {
-                    switch (instruction & 0x00FF)
-                    {
-                        case (0x9E): // Skips next instruction if key with value of Vx is pressed.
-                            return VxSKP;
-                        case (0xA1): //Skips next instruction if key with the value of Vx is not pressed.
-                            return VxSKNP;
-                    }
-
-                    break;
-                }
-                case (0xF000):
+                    0x9E => // Skips next instruction if key with value of Vx is pressed.
+                        VxSKP,
+                    0xA1 => //Skips next instruction if key with the value of Vx is not pressed.
+                        VxSKNP,
+                    _ => NoOp
+                },
+                0xF000 => (instruction & 0x00FF) switch
                 {
-                    switch (instruction & 0x00FF)
-                    {
-                        case 0x07: //Set Vx = delay timer value.
-                            return LoadVxWithDt;
-                        case 0x0A: // Wait for a key press, store the value of the key in Vx
-                            return Wait;
-                        case 0x15: // Set Delay Timer
-                            return SetDelay;
-                        case 0x18: // Set Sound Timer
-                            return SetSound;
-                        case 0x1E: // I = I + Vx
-                            return IADDVX;
-                        case 0x29: // I = Sprite Digit Vx
-                            return LDFVX;
-                        case 0x33: // Stire BCD Representation of Vx in memory location I, I+1 and I+2.
-                            return BCD;
-                        case 0x55: //Stores registers V0 - Vx in memory starting at location I
-                            return Dump;
-                        case 0x65: // Read registers V0 through Vx in memory starting at location I.
-                            return Load;
-                    }
-
-                    break;
-                }
-            }
-
-            return () => { };
+                    0x07 => //Set Vx = delay timer value.
+                        LoadVxWithDt,
+                    0x0A => // Wait for a key press, store the value of the key in Vx
+                        Wait,
+                    0x15 => // Set Delay Timer
+                        SetDelay,
+                    0x18 => // Set Sound Timer
+                        SetSound,
+                    0x1E => // I = I + Vx
+                        IADDVX,
+                    0x29 => // I = Sprite Digit Vx
+                        LDFVX,
+                    0x33 => // Stire BCD Representation of Vx in memory location I, I+1 and I+2.
+                        BCD,
+                    0x55 => //Stores registers V0 - Vx in memory starting at location I
+                        Dump,
+                    0x65 => // Read registers V0 through Vx in memory starting at location I.
+                        Load,
+                    _ => NoOp
+                },
+                _ => NoOp
+            };
         }
 
+        /// <summary>
+        /// Fetches the instruction to be executed.
+        ///
+        /// the combined 16 bit instruction is stored in
+        /// <see cref="Instruction"/>
+        ///
+        /// <remarks>
+        /// This function increments the
+        /// program counter by 2
+        /// </remarks>
+        /// </summary>
         public void Fetch()
         {
             var hiByte = Ram[ProgramCounter];
@@ -349,7 +345,7 @@ namespace PolyChip8
         /// </summary>
         private void RET()
         {
-            ProgramCounter = StackPointer;
+            ProgramCounter = Stack[StackPointer];
             StackPointer -= 1;
         }
 
@@ -370,10 +366,10 @@ namespace PolyChip8
         /// </summary>
         private void CALL()
         {
-            //put current pc on the top of the stack
-            Stack[StackPointer] = ProgramCounter;
             //increment stack pointer.
             StackPointer++;
+            //put current pc on the top of the stack
+            Stack[StackPointer] = ProgramCounter;
             //set program counter to NNN.
             ProgramCounter = Nnn;
         }
@@ -521,7 +517,7 @@ namespace PolyChip8
             var Vx = VRegisters[X];
             var Vy = VRegisters[Y];
 
-            VRegisters[X] = (byte) (Vx << 1);
+            VRegisters[X] = (byte) (Vx >> 1);
 
             VRegisters[0xF] = (byte) (Vx & 0b00000001);
         }
@@ -752,10 +748,46 @@ namespace PolyChip8
             }
         }
 
-        public void Dissassemble()
+        //Resets CPU to initial power on state.
+        private void Reset()
         {
-            var start = 0x200;
+            //Clear the registers
+            foreach (var register in VRegisters)
+            {
+                VRegisters[register] = 0;
+            }
 
+            //Clear Stack
+            for (int i = 0; i < StackSize; i++)
+            {
+                Stack[i] = 0x0000;
+            }
+            
+
+            DelayTimer = 0;
+            SoundTimer = 0;
+            AddressRegister = 0x0000;
+            ProgramCounter = InstructionStartAddress;
+            StackPointer = 0;
+            Instruction = 0x0000;
+            ProgramSize = 0;
+            X = 0;
+            Y = 0;
+            N = 0;
+            Nn = 0;
+            Nnn = 0;
+            
+            //Clear the screen.
+            CLS();
+        }
+
+        ///<summary>
+        /// Disassembles the rom loaded into memory.
+        /// </summary> 
+        public void Disassemble()
+        {
+            var start = InstructionStartAddress;
+            Disassembly = new List<string>();
 
             for (int pc = start; pc < Ram.Length; pc += 2)
             {
@@ -767,7 +799,7 @@ namespace PolyChip8
                 var op = GetOp(instruction);
                 var opName = op.Method.Name;
 
-                Dissassembly.Add($"$0x{pc:x4}    {opName}    (0x{instruction:X4})");
+                Disassembly.Add($"$0x{pc:x4}    {opName}    (0x{instruction:X4})");
             }
         }
     }

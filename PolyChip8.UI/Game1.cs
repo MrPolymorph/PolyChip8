@@ -30,11 +30,11 @@ namespace PolyChip8.UI
         {
             _cpu = new CPU();
 
-            _screenTexture = new Texture2D(GraphicsDevice, _cpu.DisplayWidth, _cpu.DisplayHeight, false, SurfaceFormat.ColorSRgb);
+            _screenTexture = new Texture2D(GraphicsDevice, CPU.DisplayWidth, CPU.DisplayHeight, false, SurfaceFormat.ColorSRgb);
             _systemFont = Content.Load<SpriteFont>(@"NES_FONT");
 
             _cpu.LoadROM("/home/kris/Projects/PolyChip8/ROMS/test_opcode.ch8");
-            _cpu.Dissassemble();
+            _cpu.Disassemble();
             
             base.Initialize();
         }
@@ -54,7 +54,7 @@ namespace PolyChip8.UI
 
             _currentKeyboardState = Keyboard.GetState();
 
-            _emulate = false;
+            _emulate = true;
             
             if (_emulate)
             {
@@ -95,11 +95,11 @@ namespace PolyChip8.UI
             GraphicsDevice.Clear(Color.MidnightBlue);
             GraphicsDevice.Textures[0] = null;
 
-            _screenTexture.SetData(_cpu.Screen, 0, _cpu.DisplayHeight * _cpu.DisplayWidth );
+            _screenTexture.SetData(_cpu.Screen, 0, CPU.DisplayHeight * CPU.DisplayWidth );
             
             _spriteBatch.Begin();
             
-            _spriteBatch.Draw(_screenTexture, new Vector2(120, 20), new Rectangle(0,0, _cpu.DisplayWidth, _cpu.DisplayHeight),
+            _spriteBatch.Draw(_screenTexture, new Vector2(120, 20), new Rectangle(0,0, CPU.DisplayWidth, CPU.DisplayHeight),
                 Color.White, 0.0f, new Vector2(0,0), 10f, SpriteEffects.None, 0f);
             
             DrawRegisters();
@@ -112,7 +112,7 @@ namespace PolyChip8.UI
 
         private void DrawRegisters()
         {
-            var baseX = _cpu.DisplayWidth + 700;
+            var baseX = CPU.DisplayWidth + 700;
             var baseY = 70;
             
             _spriteBatch.DrawString(_systemFont, $"PC: $0x{_cpu.ProgramCounter:X4}", new Vector2(baseX + 64, baseY + 25), Color.White);
@@ -141,18 +141,18 @@ namespace PolyChip8.UI
         private void DrawDisassembly()
         {
             var y = 220;
-            var x = _cpu.DisplayWidth + 900;
+            var x = CPU.DisplayWidth + 900;
             
             var programCounterHex = _cpu.ProgramCounter.ToString("X4");
-            var instruction = _cpu.Dissassembly.FirstOrDefault(x => x.Contains(programCounterHex, StringComparison.OrdinalIgnoreCase));
+            var instruction = _cpu.Disassembly.FirstOrDefault(x => x.Contains(programCounterHex, StringComparison.OrdinalIgnoreCase));
 
             if (instruction != null)
             {
-                var instructionIndex = _cpu.Dissassembly.IndexOf(instruction);
+                var instructionIndex = _cpu.Disassembly.IndexOf(instruction);
 
                 if (instructionIndex < 26)
                 {
-                    var dissPrint = _cpu.Dissassembly.Take(26);
+                    var dissPrint = _cpu.Disassembly.Take(26);
 
                     foreach (var line in dissPrint)
                     {
@@ -169,8 +169,8 @@ namespace PolyChip8.UI
                 {
                     var halfLines = 26 / 2;
 
-                    var dissBefore = _cpu.Dissassembly.Skip(instructionIndex - halfLines).Take(halfLines);
-                    var dissAfter = _cpu.Dissassembly.Skip(instructionIndex + 1).Take(halfLines);
+                    var dissBefore = _cpu.Disassembly.Skip(instructionIndex - halfLines).Take(halfLines);
+                    var dissAfter = _cpu.Disassembly.Skip(instructionIndex + 1).Take(halfLines);
 
                     foreach (var line in dissBefore)
                     {
