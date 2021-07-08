@@ -11,26 +11,33 @@ namespace PolyChip8
         private const ushort RamSize = 4096;
         private const byte StackSize = 16;
         private const byte NumVRegisters = 16;
+        private const byte KeyboardSize = 16;
         private const ushort InstructionStartAddress = 0x200;
         
         private readonly byte[] _screen;
-
         private readonly Random _random;
 
+        private bool _interrupt;
+        
         /// <summary>
         /// RAM from location 0x000 -> 0xFFF
         /// </summary>
         public byte[] Ram { get; }
 
         /// <summary>
+        /// Stores the keyboard pressed values
+        /// </summary>
+        public byte[] Keyboard;
+        
+        /// <summary>
         /// Holds the Stack memory.
         /// </summary>
-        private ushort[] Stack { get; }
-
+        public ushort[] Stack { get; }
+        
         /// <summary>
         /// This timer is intended to be used for timing
         /// the events of games. its value can be set and read;
-        /// </summary>
+        /// </summary>        
         public int DelayTimer;
 
         /// <summary>
@@ -126,6 +133,7 @@ namespace PolyChip8
             VRegisters = new byte[NumVRegisters];
             Ram = new byte[RamSize];
             Stack = new ushort[StackSize];
+            Keyboard = new byte[KeyboardSize];
             _screen = new byte[DisplayWidth * DisplayHeight];
             _random = new Random();
             
@@ -183,6 +191,11 @@ namespace PolyChip8
             Fetch();
             var op = GetOp(Instruction);
             op();
+        }
+
+        public void SetKeypress(byte key)
+        {
+            
         }
 
         /// <summary>
@@ -273,7 +286,7 @@ namespace PolyChip8
                         IADDVX,
                     0x29 => // I = Sprite Digit Vx
                         LDFVX,
-                    0x33 => // Stire BCD Representation of Vx in memory location I, I+1 and I+2.
+                    0x33 => // Store BCD Representation of Vx in memory location I, I+1 and I+2.
                         BCD,
                     0x55 => //Stores registers V0 - Vx in memory starting at location I
                         Dump,
@@ -309,7 +322,8 @@ namespace PolyChip8
             Y = (byte) ((Instruction & 0x00F0) >> 4);
             Nn = (byte) (Instruction & 0x00FF);
             
-            ProgramCounter += 2;
+            if(!_interrupt)
+                ProgramCounter += 2;
         }
 
         /// <summary>
@@ -516,12 +530,9 @@ namespace PolyChip8
         /// </summary>
         private void VxSHR()
         {
-            var Vx = VRegisters[X];
-            var Vy = VRegisters[Y];
-
-            VRegisters[X] = (byte) (Vx >> 1);
-
-            VRegisters[0xF] = (byte) (Vx & 0b00000001);
+            var vx = VRegisters[X];
+            VRegisters[0xF] = (byte) (vx & 0x01);
+            VRegisters[X] = (byte) (vx >> 1);
         }
 
         /// <summary>
@@ -533,9 +544,8 @@ namespace PolyChip8
             var vx = VRegisters[X];
             var vy = VRegisters[Y];
 
-            
-            VRegisters[0xF] = (byte) (vy > vx ? 1 : 0);
-            
+            VRegisters[0xF] = vx > vy ? (byte) 0 : (byte) 1;
+
             VRegisters[X] = (byte) (vy - vx);
         }
 
@@ -547,7 +557,8 @@ namespace PolyChip8
         {
             var vx = VRegisters[X];
             
-            VRegisters[0xF] = (byte) (((vx & 0xF0) == 1 ? 1 : 0) << 1);
+            VRegisters[0xF] = (byte) (vx >> 7);
+            VRegisters[X] = (byte) (vx << 1);
         }
 
         /// <summary>
@@ -635,7 +646,10 @@ namespace PolyChip8
         /// </summary>
         private void VxSKP()
         {
-            
+            var vx = VRegisters[X];
+
+            if (Keyboard[vx] != 0)
+                ProgramCounter += 2;
         }
 
         /// <summary>
@@ -645,6 +659,10 @@ namespace PolyChip8
         /// </summary>
         private void VxSKNP()
         {
+            var vx = VRegisters[X];
+
+            if (Keyboard[vx] == 0)
+                ProgramCounter += 2;
         }
 
         /// <summary>
@@ -658,10 +676,20 @@ namespace PolyChip8
         /// <summary>
         /// A key press is awaited, and then stored in Vx.
         ///
-        /// (Blocking Opeartion. All instructions halted until next key event).
+        /// (Blocking Operation. All instructions halted until next key event).
         /// </summary>
         private void Wait()
         {
+            for (byte i = 0; i < 0xF; i++)
+            {
+                if (Keyboard[i] != 0)
+                {
+                    VRegisters[X] = i;
+                    _interrupt = false;
+                }
+                else
+                    _interrupt = true;
+            }
         }
 
         /// <summary>
@@ -709,13 +737,13 @@ namespace PolyChip8
         private void BCD()
         {
             var vx = VRegisters[X];
-            byte h = (byte) Math.Abs(vx / 100 % 10);
-            byte t = (byte) Math.Abs(vx / 10 % 10);
-            byte d = (byte) Math.Abs(vx / 1 % 10);
+            var h = vx / 100;
+            var t = (vx / 10) % 10;
+            var d = vx % 10;
 
-            Ram[AddressRegister] = h;
-            Ram[AddressRegister + 1] = t;
-            Ram[AddressRegister + 2] = d;
+            Ram[AddressRegister] = (byte) h;
+            Ram[AddressRegister + 1] = (byte) t;
+            Ram[AddressRegister + 2] = (byte) d;
         }
 
         /// <summary>
@@ -726,13 +754,9 @@ namespace PolyChip8
         /// </summary>
         private void Dump()
         {
-            var index = AddressRegister;
+            for (int i = 0; i <= X; i++)
+                Ram[AddressRegister + i] = VRegisters[i];
 
-            for (int i = 0; i < X; i++)
-            {
-                Ram[index] = VRegisters[i];
-                index++;
-            }
         }
 
         /// <summary>
@@ -741,13 +765,8 @@ namespace PolyChip8
         /// </summary>
         private void Load()
         {
-            var index = AddressRegister;
-
-            for (int i = 0; i < X; i++)
-            {
-                VRegisters[i] = Ram[index];
-                index++;
-            }
+            for (int i = 0; i <= X; i++) 
+                VRegisters[i] = Ram[AddressRegister + i] ;
         }
 
         //Resets CPU to initial power on state.
