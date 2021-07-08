@@ -487,6 +487,8 @@ namespace PolyChip8
 
             if (result > 255)
                 VRegisters[0xF] = 1;
+
+            VRegisters[X] = (byte) result;
         }
 
         /// <summary>
