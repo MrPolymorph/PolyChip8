@@ -1,37 +1,29 @@
-name: .NET
+name: dotnet package
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: [push]
 
 jobs:
   build:
 
-    runs-on: ubuntu-latest    
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        dotnet-version: ['3.1.x', '5.0.x']
+        dotnet-version: [ '3.0', '3.1.x', '5.0.x' ]
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Setup .NET Core SDK ${{ matrix.dotnet-version}}
-      uses: actions/setup-dotnet@v1.7.2	
-      with:	
-        dotnet-version: ${{ matrix.dotnet-version }}
-    - name: Install dependencies
-    - name: Restore dependencies
-      run: dotnet restore
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
-    - name: Test
-      run: dotnet test --logger trx --results-directory "TestResults-${{ matrix.dotnet-version }}"
-    - name: Upload dotnet test results
-      uses: actions/upload-artifact@v2
-      with:
-        name: dotnet-results-${{ matrix.dotnet-version }}
-        path: TestResults-${{ matrix.dotnet-version }}
-      # Use always() to always run this step to publish test results when there are test failures
-      if: ${{ always() }}
-      
+        - uses: actions/checkout@v2
+        - name: Setup dotnet
+          uses: actions/setup-dotnet@v1
+          with:
+            dotnet-version: ${{ matrix.dotnet-version }}
+        - name: Install dependencies
+          run: dotnet restore
+        - name: Test with dotnet
+          run: dotnet test --logger trx --results-directory "TestResults-${{ matrix.dotnet-version }}"
+        - name: Upload dotnet test results
+          uses: actions/upload-artifact@v2
+          with:
+            name: dotnet-results-${{ matrix.dotnet-version }}
+            path: TestResults-${{ matrix.dotnet-version }}
+          # Use always() to always run this step to publish test results when there are test failures
+          if: ${{ always() }}
