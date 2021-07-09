@@ -5,12 +5,12 @@ using Microsoft.Xna.Framework.Graphics;
 
 namespace PolyChip8.UI.Drawing
 {
-    public class DebugOutputManager
+    public class DebugOutputView
     {
         private SpriteFont _systemFont;
         private CPU _cpu;
         
-        public DebugOutputManager(SpriteFont font, CPU cpu)
+        public DebugOutputView(SpriteFont font, CPU cpu)
         {
             _systemFont = font;
             _cpu = cpu;
@@ -111,7 +111,7 @@ namespace PolyChip8.UI.Drawing
         }
         
         
-        public void DrawRam(SpriteBatch sb)
+        private void DrawRam(SpriteBatch sb)
         {
             int y = 28;
             int count = 0;
@@ -137,6 +137,14 @@ namespace PolyChip8.UI.Drawing
                 }
                 
             }
+        }
+
+        public void DrawAll(SpriteBatch sb, float fps)
+        {
+            DrawDisassembly(sb);
+            DrawRam(sb);
+            DrawRegisters(sb);
+            DrawFps(sb, fps);
         }
     }
 

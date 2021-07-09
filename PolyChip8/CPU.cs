@@ -772,12 +772,12 @@ namespace PolyChip8
         }
 
         //Resets CPU to initial power on state.
-        private void Reset()
+        public void Reset()
         {
             //Clear the registers
-            foreach (var register in VRegisters)
+            for(int i = 0; i < NumVRegisters; i++)
             {
-                VRegisters[register] = 0;
+                VRegisters[i] = 0;
             }
 
             //Clear Stack
@@ -798,7 +798,6 @@ namespace PolyChip8
             ProgramCounter = InstructionStartAddress;
             StackPointer = 0;
             Instruction = 0x0000;
-            ProgramSize = 0;
             X = 0;
             Y = 0;
             N = 0;
